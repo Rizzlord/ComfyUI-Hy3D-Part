@@ -1,0 +1,402 @@
+{
+  "last_node_id": 12,
+  "last_link_id": 20,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadMesh",
+      "pos": [100, 100],
+      "size": [300, 100],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "TRIMESH",
+          "type": "TRIMESH",
+          "links": [1],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "mesh_path": "input_mesh.glb"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 2,
+      "type": "BlenderDecimate",
+      "pos": [450, 100],
+      "size": [350, 400],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "TRIMESH",
+          "type": "TRIMESH",
+          "links": [2],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "Collapse",
+        5000,
+        2,
+        true,
+        false,
+        true,
+        false,
+        false,
+        0.0001
+      ]
+    },
+    {
+      "id": 3,
+      "type": "Hy3DPartSegmentation",
+      "pos": [850, 100],
+      "size": [400, 500],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH", 
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "segmented_mesh",
+          "type": "TRIMESH",
+          "links": [3, 5],
+          "shape": 3
+        },
+        {
+          "name": "segmentation_info",
+          "type": "STRING",
+          "links": [4],
+          "shape": 3
+        },
+        {
+          "name": "part_bboxes",
+          "type": "LIST",
+          "links": [6],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        100000,
+        400,
+        32,
+        0.95,
+        42,
+        true,
+        true,
+        ""
+      ]
+    },
+    {
+      "id": 4,
+      "type": "Hy3DPartGeneration",
+      "pos": [1300, 100],
+      "size": [400, 450],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH",
+          "link": 3
+        },
+        {
+          "name": "part_bboxes",
+          "type": "LIST",
+          "link": 6
+        }
+      ],
+      "outputs": [
+        {
+          "name": "generated_parts",
+          "type": "TRIMESH",
+          "links": [7, 9],
+          "shape": 3
+        },
+        {
+          "name": "bbox_visualization",
+          "type": "TRIMESH",
+          "links": [8],
+          "shape": 3
+        },
+        {
+          "name": "exploded_view",
+          "type": "TRIMESH",
+          "links": [10],
+          "shape": 3
+        },
+        {
+          "name": "generation_info",
+          "type": "STRING",
+          "links": [11],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        50,
+        -1.0,
+        512,
+        42,
+        "",
+        []
+      ]
+    },
+    {
+      "id": 5,
+      "type": "BlenderExportGLB",
+      "pos": [850, 650],
+      "size": [350, 250],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "glb_path",
+          "type": "STRING",
+          "links": [12],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "hunyuan_output",
+        "segmented_mesh",
+        0.0001
+      ]
+    },
+    {
+      "id": 6,
+      "type": "Hy3DExportParts",
+      "pos": [1300, 600],
+      "size": [350, 200],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh_scene",
+          "type": "TRIMESH",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "export_info",
+          "type": "STRING",
+          "links": [13],
+          "shape": 3
+        },
+        {
+          "name": "exported_files",
+          "type": "LIST",
+          "links": [14],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "hunyuan_parts",
+        "part"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "BlenderExportGLB",
+      "pos": [1750, 300],
+      "size": [350, 250],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "glb_path",
+          "type": "STRING",
+          "links": [15],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "hunyuan_output",
+        "bbox_visualization",
+        0.0001
+      ]
+    },
+    {
+      "id": 8,
+      "type": "BlenderExportGLB", 
+      "pos": [1750, 600],
+      "size": [350, 250],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "glb_path",
+          "type": "STRING",
+          "links": [16],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "hunyuan_output",
+        "exploded_view",
+        0.0001
+      ]
+    },
+    {
+      "id": 9,
+      "type": "BlenderExportGLB",
+      "pos": [1750, 900],
+      "size": [350, 250],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "trimesh",
+          "type": "TRIMESH",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "glb_path",
+          "type": "STRING",
+          "links": [17],
+          "shape": 3
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "hunyuan_output",
+        "generated_parts",
+        0.0001
+      ]
+    },
+    {
+      "id": 10,
+      "type": "ShowText",
+      "pos": [1300, 900],
+      "size": [400, 100],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 4
+        }
+      ],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": []
+    },
+    {
+      "id": 11,
+      "type": "ShowText",
+      "pos": [1750, 1200],
+      "size": [400, 100],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 11
+        }
+      ],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": []
+    },
+    {
+      "id": 12,
+      "type": "ShowText",
+      "pos": [2200, 600],
+      "size": [400, 100],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 13
+        }
+      ],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "TRIMESH"],
+    [2, 2, 0, 3, 0, "TRIMESH"],
+    [3, 3, 0, 4, 0, "TRIMESH"],
+    [4, 3, 1, 10, 0, "STRING"],
+    [5, 3, 0, 5, 0, "TRIMESH"],
+    [6, 3, 2, 4, 1, "LIST"],
+    [7, 4, 0, 6, 0, "TRIMESH"],
+    [8, 4, 1, 7, 0, "TRIMESH"],
+    [9, 4, 0, 9, 0, "TRIMESH"],
+    [10, 4, 2, 8, 0, "TRIMESH"],
+    [11, 4, 3, 11, 0, "STRING"],
+    [12, 5, 0, "output", 0, "STRING"],
+    [13, 6, 0, 12, 0, "STRING"],
+    [14, 6, 1, "output", 1, "LIST"],
+    [15, 7, 0, "output", 2, "STRING"],
+    [16, 8, 0, "output", 3, "STRING"],
+    [17, 9, 0, "output", 4, "STRING"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

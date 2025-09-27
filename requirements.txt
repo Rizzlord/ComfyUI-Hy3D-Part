@@ -1,0 +1,26 @@
+# Requirements for ComfyUI-Hy3D-Part
+
+# Core dependencies
+torch>=2.0.0
+numpy>=1.20.0
+trimesh>=3.0.0
+scikit-learn>=1.0.0
+fpsample>=0.2.0
+
+# Optional but recommended
+viser>=0.1.0
+gradio>=3.0.0
+
+# For better performance
+numba>=0.56.0
+
+# ComfyUI integration (automatically available in ComfyUI environment)
+# folder_paths  # ComfyUI built-in
+
+# Hunyuan3D-Part specific (install separately)
+# sonata  # Install from https://github.com/facebookresearch/sonata
+# pytorch-lightning  # For X-Part
+# diffusers  # For X-Part pipeline
+# addict  # For configuration management
+# spconv-cu124  # For sparse convolutions (CUDA 12.4)
+# pymeshlab  # For mesh processing
