@@ -739,7 +739,7 @@ def mesh_sam(
 class AutoMask:
     def __init__(
         self,
-        ckpt_path,
+        ckpt_path=None,
         point_num=100000,
         prompt_num=400,
         threshold=0.95,
@@ -760,7 +760,8 @@ class AutoMask:
             self.model = P3SAM()
             self.model.load_state_dict(ckpt_path)
             self.model.eval()
-            self.model_parallel = torch.nn.DataParallel(self.model)
+            # self.model_parallel = torch.nn.DataParallel(self.model)
+            self.model_parallel = self.model
             self.model.cuda()
             self.model_parallel.cuda()
         self.point_num = point_num

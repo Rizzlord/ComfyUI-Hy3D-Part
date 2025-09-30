@@ -2,24 +2,8 @@ import os
 import sys
 import torch 
 import torch.nn as nn 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'XPart/partgen'))
-try:
-    from models import sonata
-    from utils.misc import smart_load_model
-except ImportError as e:
-    print(f"Warning: Could not import XPart dependencies: {e}")
-    # Provide fallbacks
-    class MockSonata:
-        @staticmethod
-        def load(*args, **kwargs):
-            return None
-        class transform:
-            @staticmethod
-            def default():
-                return lambda x: x
-    sonata = MockSonata()
-    def smart_load_model(*args, **kwargs):
-        return None
+from models import sonata
+from XPart.partgen.utils.misc import smart_load_model
 
 '''
 This is the P3-SAM model.
@@ -28,7 +12,7 @@ The model is composed of three parts:
 2. SEG1+SEG2: a two-stage multi-head segmentor
 3. IoU prediction: an IoU predictor
 '''
-def build_P3SAM(self): #build p3sam
+def build_P3SAM(self):
     ######################## Sonata ########################
     self.sonata = sonata.load("sonata", repo_id="facebook/sonata", download_root='/root/sonata')
     self.mlp = nn.Sequential(
@@ -42,14 +26,14 @@ def build_P3SAM(self): #build p3sam
     ######################## Sonata ########################
 
     ######################## SEG1 ########################
-    self.seg_mlp_1 = nn.Sequential(#seg1
+    self.seg_mlp_1 = nn.Sequential(
             nn.Linear(512+3+3, 512),
             nn.GELU(),
             nn.Linear(512, 512),
             nn.GELU(),
             nn.Linear(512, 1),
         )
-    self.seg_mlp_2 = nn.Sequential( #seg2
+    self.seg_mlp_2 = nn.Sequential(
             nn.Linear(512+3+3, 512),
             nn.GELU(),
             nn.Linear(512, 512),
@@ -66,28 +50,28 @@ def build_P3SAM(self): #build p3sam
     ######################## SEG1 ########################
 
     ######################## SEG2 ########################
-    self.seg_s2_mlp_g = nn.Sequential( #seg2
+    self.seg_s2_mlp_g = nn.Sequential(
             nn.Linear(512+3+3+3, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
         )
-    self.seg_s2_mlp_1 = nn.Sequential( #seg2
+    self.seg_s2_mlp_1 = nn.Sequential(
             nn.Linear(512+3+3+3+256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 1),
         )
-    self.seg_s2_mlp_2 = nn.Sequential( #seg2
+    self.seg_s2_mlp_2 = nn.Sequential(
             nn.Linear(512+3+3+3+256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 1),
         )
-    self.seg_s2_mlp_3 = nn.Sequential( #seg2
+    self.seg_s2_mlp_3 = nn.Sequential(
             nn.Linear(512+3+3+3+256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
@@ -97,21 +81,21 @@ def build_P3SAM(self): #build p3sam
     ######################## SEG2 ########################
 
     
-    self.iou_mlp = nn.Sequential( #iou predictor
+    self.iou_mlp = nn.Sequential(
             nn.Linear(512+3+3+3+256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
         )
-    self.iou_mlp_out = nn.Sequential( #iou predictor
+    self.iou_mlp_out = nn.Sequential(
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 3),
         )
-    self.iou_criterion = torch.nn.MSELoss() #iou predictor
+    self.iou_criterion = torch.nn.MSELoss()
 
 '''
 Load the P3-SAM model from a checkpoint.
@@ -126,46 +110,21 @@ def load_state_dict(self,
                     assign=False, 
                     ignore_seg_mlp=False, 
                     ignore_seg_s2_mlp=False, 
-                    ignore_iou_mlp=False):   # load checkpoint
+                    ignore_iou_mlp=False):
     if ckpt_path is not None:
-        state_dict = torch.load(ckpt_path, map_location="cpu")["state_dict"]
-    elif state_dict is None:
-        # Try different checkpoint names and repos
-        checkpoint_options = [
-            {"repo": "tencent/Hunyuan3D-Part", "filename": "p3sam.pt"},  # Correct filename first
-            {"repo": "tencent/Hunyuan3D-Part", "filename": "p3sam.ckpt"},
-            {"repo": "tencent/Hunyuan3D-Part", "filename": "p3-sam.ckpt"},
-            {"repo": "tencent/Hunyuan3D-Part", "filename": "P3-SAM/p3sam.pt"},
-        ]
-        
-        ckpt_path = None
-        for option in checkpoint_options:
-            try:
-                print(f'Trying to download from {option["repo"]}/{option["filename"]}...')
-                from huggingface_hub import hf_hub_download
-                ckpt_path = hf_hub_download(
-                    repo_id=option["repo"], 
-                    filename=option["filename"], 
-                    local_dir='weights'
-                )
-                print(f'Successfully downloaded model from {option["repo"]} to: {ckpt_path}')
-                break
-            except Exception as e:
-                print(f'Download failed for {option["filename"]}: {e}')
-                continue
-        
-        if ckpt_path is None:
-            print("Warning: Could not download P3-SAM checkpoint from any source.")
-            print("Using minimal P3-SAM implementation without pretrained weights.")
-            # Return early to skip loading, will use minimal implementation
-            return
-        
-        try:
+        if ckpt_path.endswith('.pt') or ckpt_path.endswith('.ckpt'):
             state_dict = torch.load(ckpt_path, map_location="cpu")["state_dict"]
-        except Exception as e:
-            print(f"Failed to load checkpoint {ckpt_path}: {e}")
-            print("Using minimal P3-SAM implementation.")
-            return
+        elif ckpt_path.endswith('.safetensors'):
+            from safetensors.torch import load_file
+            state_dict = load_file(ckpt_path)
+    elif state_dict is None:
+        # download from huggingface
+        print(f'trying to download model from huggingface...')
+        from huggingface_hub import hf_hub_download
+        ckpt_path = hf_hub_download(repo_id="tencent/Hunyuan3D-Part", filename="p3sam/p3sam.safetensors", local_dir='weights')
+        print(f'download model from huggingface to: {ckpt_path}')
+        from safetensors.torch import load_file
+        state_dict = load_file(ckpt_path)
 
     local_state_dict = self.state_dict()
     seen_keys = {k: False for k in local_state_dict.keys()}
@@ -180,10 +139,10 @@ def load_state_dict(self,
                 print(f"mismatching shape for key {k}: loaded {local_state_dict[k].shape} but model has {v.shape}")
         else:
             print(f"unexpected key {k} in loaded state dict")
-    seg_mlp_flag = False #ignore seg_mlp
-    seg_s2_mlp_flag = False #ignore seg_s2_mlp
-    iou_mlp_flag = False #ignore iou_mlp
-    for k in seen_keys: #check missing keys
+    seg_mlp_flag = False
+    seg_s2_mlp_flag = False
+    iou_mlp_flag = False
+    for k in seen_keys:
         if not seen_keys[k]:
             if ignore_seg_mlp and 'seg_mlp' in k:
                 seg_mlp_flag = True
@@ -191,11 +150,11 @@ def load_state_dict(self,
                 seg_s2_mlp_flag = True
             elif ignore_iou_mlp and 'iou_mlp' in k:
                 iou_mlp_flag = True
-            else: #missing key
+            else:
                 print(f"missing key {k} in loaded state dict")
-    if ignore_seg_mlp and seg_mlp_flag: #ignore seg_mlp
+    if ignore_seg_mlp and seg_mlp_flag:
         print("seg_mlp is missing in loaded state dict, ignore seg_mlp in loaded state dict")
-    if ignore_seg_s2_mlp and seg_s2_mlp_flag: #ignore seg_s2_mlp
+    if ignore_seg_s2_mlp and seg_s2_mlp_flag:
         print("seg_s2_mlp is missing in loaded state dict, ignore seg_s2_mlp in loaded state dict")
-    if ignore_iou_mlp and iou_mlp_flag: #ignore iou_mlp
+    if ignore_iou_mlp and iou_mlp_flag:
         print("iou_mlp is missing in loaded state dict, ignore iou_mlp in loaded state dict")   

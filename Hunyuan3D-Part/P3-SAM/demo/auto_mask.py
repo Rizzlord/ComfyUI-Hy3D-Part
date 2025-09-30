@@ -127,9 +127,17 @@ def get_feat(model, points, normals):
         "batch": np.zeros(points.shape[0], dtype=np.int64),
     }
     data_dict = model.transform(data_dict)
+    
+    # Get target dtype from model if available (for quantization compatibility)
+    target_dtype = getattr(model, '_target_dtype', torch.float32)
+    
     for k in data_dict:
         if isinstance(data_dict[k], torch.Tensor):
             data_dict[k] = data_dict[k].cuda()
+            # Convert floating point tensors to target dtype
+            if data_dict[k].dtype.is_floating_point:
+                data_dict[k] = data_dict[k].to(dtype=target_dtype)
+    
     point = model.sonata(data_dict)
     while "pooling_parent" in point.keys():
         assert "pooling_inverse" in point.keys()
@@ -151,16 +159,22 @@ def get_mask(model, feats, points, point_prompt, iter=1):
     points: [N, 3]
     point_prompt: [K, 3]
     """
+    # Get target dtype from model if available (for quantization compatibility)
+    target_dtype = getattr(model, '_target_dtype', torch.float32)
+    
     point_num = points.shape[0]
     prompt_num = point_prompt.shape[0]
     feats = feats.unsqueeze(1)  # [N, 1, 512]
     feats = feats.repeat(1, prompt_num, 1).cuda()  # [N, K, 512]
+    
+    # Convert input tensors to target dtype
     points = torch.from_numpy(points).float().cuda().unsqueeze(1)  # [N, 1, 3]
-    points = points.repeat(1, prompt_num, 1)  # [N, K, 3]
+    points = points.to(dtype=target_dtype).repeat(1, prompt_num, 1)  # [N, K, 3]
+    
     prompt_coord = (
         torch.from_numpy(point_prompt).float().cuda().unsqueeze(0)
     )  # [1, K, 3]
-    prompt_coord = prompt_coord.repeat(point_num, 1, 1)  # [N, K, 3]
+    prompt_coord = prompt_coord.to(dtype=target_dtype).repeat(point_num, 1, 1)  # [N, K, 3]
     
     feats = feats.transpose(0, 1)  # [K, N, 512]
     points = points.transpose(0, 1)  # [K, N, 3]
@@ -1237,7 +1251,7 @@ def mesh_sam(
 class AutoMask:
     def __init__(
         self,
-        ckpt_path,
+        ckpt_path=None,
         point_num=100000,
         prompt_num=400,
         threshold=0.95,
@@ -1253,9 +1267,11 @@ class AutoMask:
         self.model = P3SAM()
         self.model.load_state_dict(ckpt_path)
         self.model.eval()
-        self.model_parallel = torch.nn.DataParallel(self.model)
-        self.model.cuda()
-        self.model_parallel.cuda()
+        self.model_parallel = self.model
+        # self.model.cuda()
+        self.model.to('cuda')
+        self.model_parallel.to('cuda')
+        print('p3sam to cuda')
         self.point_num = point_num
         self.prompt_num = prompt_num
         self.threshold = threshold
