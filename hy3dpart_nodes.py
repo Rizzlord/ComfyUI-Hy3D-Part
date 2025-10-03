@@ -128,7 +128,7 @@ class P3_SAM_Segmenter:
                 "postprocess": ("BOOLEAN", {"default": True}),
                 "postprocess_threshold": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
-                "point_num": ("INT", {"default": 100000, "min": 1000, "max": 5000000, "step": 1000}),
+                "point_num": ("INT", {"default": 55000, "min": 1000, "max": 100000, "step": 1000}),
                 "prompt_num": ("INT", {"default": 400, "min": 1, "max": 4096, "step": 1}),
             }
         }
@@ -190,8 +190,10 @@ class ColorSeperation:
             "required": {
                 "segmented_mesh": ("TRIMESH",),
                 "fill_holes": ("BOOLEAN", {"default": True}),
-                "ignore_black": ("BOOLEAN", {"default": True}),
-                "min_faces": ("INT", {"default": 20, "min": 1, "max": 1000000, "step": 1}),
+                "ignore_black": ("BOOLEAN", {"default": False}),
+                "min_faces": ("INT", {"default": 1, "min": 1, "max": 1000000, "step": 1}),
+                "clamp_colors": ("BOOLEAN", {"default": True}),
+                "clamp_threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
@@ -200,24 +202,30 @@ class ColorSeperation:
     FUNCTION = "separate_and_fill"
     CATEGORY = "Hy3D-Part"
 
-    def separate_and_fill(self, segmented_mesh, fill_holes, ignore_black, min_faces):
+    def separate_and_fill(self, segmented_mesh, fill_holes, ignore_black, min_faces, clamp_colors, clamp_threshold):
         if segmented_mesh is None:
             raise ValueError("No mesh provided for color separation.")
 
         mesh = segmented_mesh.copy()
         face_colors = self._extract_face_colors(mesh)
+        if clamp_colors:
+            face_colors = self._clamp_colors(face_colors, clamp_threshold)
 
         unique_colors, inverse = np.unique(face_colors, axis=0, return_inverse=True)
         parts = []
-        part_colors = []
+        parts_face_colors = []
+        ignored_black_faces = []
 
         for color_idx, color in enumerate(unique_colors):
-            if ignore_black and np.all(color[:3] == 0):
+            face_indices = np.where(inverse == color_idx)[0]
+            if face_indices.size == 0:
                 continue
 
-            face_indices = np.where(inverse == color_idx)[0]
-            if face_indices.size < min_faces:
+            if ignore_black and np.all(color[:3] == 0):
+                ignored_black_faces.append(face_indices)
                 continue
+
+            small_part = face_indices.size < min_faces
 
             submesh = mesh.submesh([face_indices], append=True, repair=False)
             if isinstance(submesh, list):
@@ -231,7 +239,7 @@ class ColorSeperation:
 
             rgba_color = self._ensure_rgba(color)
 
-            if fill_holes:
+            if fill_holes and not small_part:
                 try:
                     trimesh.repair.fill_holes(submesh)
                 except Exception as exc:
@@ -239,21 +247,69 @@ class ColorSeperation:
                 else:
                     trimesh.repair.fix_normals(submesh, multibody=True)
 
-            submesh.visual.face_colors = np.tile(rgba_color, (submesh.faces.shape[0], 1))
+            part_colors = np.tile(rgba_color, (submesh.faces.shape[0], 1))
+            submesh.visual.face_colors = part_colors
 
             parts.append(submesh)
-            part_colors.append(rgba_color)
+            parts_face_colors.append(part_colors)
+
+        if ignored_black_faces:
+            if len(ignored_black_faces) == 1:
+                leftover_indices = ignored_black_faces[0]
+            else:
+                leftover_indices = np.concatenate(ignored_black_faces)
+            leftover_indices = np.asarray(leftover_indices, dtype=np.int64)
+            leftover_indices = np.unique(leftover_indices)
+            leftover_submesh = mesh.submesh([leftover_indices], append=True, repair=False)
+            if isinstance(leftover_submesh, list):
+                leftover_submesh = leftover_submesh[0] if leftover_submesh else None
+            if leftover_submesh is not None:
+                leftover_submesh = leftover_submesh.copy()
+                if leftover_submesh.faces.size:
+                    if fill_holes:
+                        try:
+                            trimesh.repair.fill_holes(leftover_submesh)
+                        except Exception as exc:
+                            print(f"Hy3D-Part Node: Hole filling failed for leftover faces: {exc}")
+                        else:
+                            trimesh.repair.fix_normals(leftover_submesh, multibody=True)
+                    leftover_colors = face_colors[leftover_indices].copy()
+                    leftover_submesh.visual.face_colors = leftover_colors
+                    parts.append(leftover_submesh)
+                    parts_face_colors.append(leftover_colors)
 
         if not parts:
             raise ValueError("No color-separated parts were produced. Check segmentation colors and settings.")
 
-        color_tiles = [np.tile(color, (part.faces.shape[0], 1)) for part, color in zip(parts, part_colors)]
+        color_tiles = parts_face_colors
         recombined_mesh = trimesh.util.concatenate(parts)
         recombined_mesh.visual.face_colors = np.vstack(color_tiles)
         recombined_mesh.metadata = (recombined_mesh.metadata or {})
         recombined_mesh.metadata["color_parts"] = parts
 
         return (recombined_mesh,)
+
+    @staticmethod
+    def _clamp_colors(colors, threshold):
+        threshold = float(np.clip(threshold, 0.0, 1.0))
+        colors_uint8 = ColorSeperation._to_uint8(colors)
+        clamped = colors_uint8.copy()
+        rgb = clamped[:, :3].astype(np.float32) / 255.0
+        rgb = (rgb >= threshold).astype(np.uint8) * 255
+        clamped[:, :3] = rgb
+        return clamped
+
+    @staticmethod
+    def _to_uint8(colors):
+        arr = np.asarray(colors)
+        if arr.dtype == np.uint8:
+            return arr.astype(np.uint8, copy=False)
+        max_val = float(np.nanmax(arr)) if arr.size else 0.0
+        if max_val <= 1.0:
+            arr = np.clip(np.round(arr * 255.0), 0, 255)
+        else:
+            arr = np.clip(np.round(arr), 0, 255)
+        return arr.astype(np.uint8)
 
     @staticmethod
     def _ensure_rgba(color):
@@ -272,11 +328,11 @@ class ColorSeperation:
 
         face_colors = getattr(visual, "face_colors", None)
         if face_colors is not None and len(face_colors):
-            return np.asarray(face_colors[:, :4], dtype=np.uint8)
+            return ColorSeperation._to_uint8(face_colors[:, :4])
 
         vertex_colors = getattr(visual, "vertex_colors", None)
         if vertex_colors is not None and len(vertex_colors):
-            vertex_colors = np.asarray(vertex_colors[:, :4], dtype=np.uint8)
+            vertex_colors = ColorSeperation._to_uint8(vertex_colors[:, :4])
             face_indices = mesh.faces
             face_vertex_colors = vertex_colors[face_indices]
             return face_vertex_colors[:, 0, :]
