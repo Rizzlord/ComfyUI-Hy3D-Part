@@ -128,6 +128,8 @@ class P3_SAM_Segmenter:
                 "postprocess": ("BOOLEAN", {"default": True}),
                 "postprocess_threshold": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+                "point_num": ("INT", {"default": 100000, "min": 1000, "max": 5000000, "step": 1000}),
+                "prompt_num": ("INT", {"default": 400, "min": 1, "max": 4096, "step": 1}),
             }
         }
 
@@ -136,7 +138,7 @@ class P3_SAM_Segmenter:
     FUNCTION = "segment"
     CATEGORY = "Hy3D-Part"
 
-    def segment(self, mesh, postprocess, postprocess_threshold, seed):
+    def segment(self, mesh, postprocess, postprocess_threshold, seed, point_num, prompt_num):
         print("Hy3D-Part Node: Starting P3-SAM segmentation.")
         
         automask = model_manager.get_p3sam_model()
@@ -147,7 +149,15 @@ class P3_SAM_Segmenter:
         if hasattr(automask, 'model_parallel'):
             setattr(automask.model_parallel, '_target_dtype', target_dtype)
             
-        aabb, face_ids, processed_mesh = automask.predict_aabb(mesh, seed=seed, is_parallel=False, post_process=postprocess, threshold=postprocess_threshold)
+        aabb, face_ids, processed_mesh = automask.predict_aabb(
+            mesh,
+            seed=seed,
+            is_parallel=False,
+            post_process=postprocess,
+            threshold=postprocess_threshold,
+            point_num=point_num,
+            prompt_num=prompt_num,
+        )
         
         model_manager.unload_all_models()
         print("Hy3D-Part Node: P3-SAM model unloaded from VRAM.")
@@ -171,6 +181,107 @@ class P3_SAM_Segmenter:
         print(f"Hy3D-Part Node: Segmentation complete.")
         
         return (segmented_mesh_vis, aabb, processed_mesh)
+
+
+class ColorSeperation:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "segmented_mesh": ("TRIMESH",),
+                "fill_holes": ("BOOLEAN", {"default": True}),
+                "ignore_black": ("BOOLEAN", {"default": True}),
+                "min_faces": ("INT", {"default": 20, "min": 1, "max": 1000000, "step": 1}),
+            }
+        }
+
+    RETURN_TYPES = ("TRIMESH",)
+    RETURN_NAMES = ("mesh",)
+    FUNCTION = "separate_and_fill"
+    CATEGORY = "Hy3D-Part"
+
+    def separate_and_fill(self, segmented_mesh, fill_holes, ignore_black, min_faces):
+        if segmented_mesh is None:
+            raise ValueError("No mesh provided for color separation.")
+
+        mesh = segmented_mesh.copy()
+        face_colors = self._extract_face_colors(mesh)
+
+        unique_colors, inverse = np.unique(face_colors, axis=0, return_inverse=True)
+        parts = []
+        part_colors = []
+
+        for color_idx, color in enumerate(unique_colors):
+            if ignore_black and np.all(color[:3] == 0):
+                continue
+
+            face_indices = np.where(inverse == color_idx)[0]
+            if face_indices.size < min_faces:
+                continue
+
+            submesh = mesh.submesh([face_indices], append=True, repair=False)
+            if isinstance(submesh, list):
+                if not submesh:
+                    continue
+                submesh = submesh[0]
+
+            submesh = submesh.copy()
+            if submesh.faces.size == 0:
+                continue
+
+            rgba_color = self._ensure_rgba(color)
+
+            if fill_holes:
+                try:
+                    trimesh.repair.fill_holes(submesh)
+                except Exception as exc:
+                    print(f"Hy3D-Part Node: Hole filling failed for color {color_idx}: {exc}")
+                else:
+                    trimesh.repair.fix_normals(submesh, multibody=True)
+
+            submesh.visual.face_colors = np.tile(rgba_color, (submesh.faces.shape[0], 1))
+
+            parts.append(submesh)
+            part_colors.append(rgba_color)
+
+        if not parts:
+            raise ValueError("No color-separated parts were produced. Check segmentation colors and settings.")
+
+        color_tiles = [np.tile(color, (part.faces.shape[0], 1)) for part, color in zip(parts, part_colors)]
+        recombined_mesh = trimesh.util.concatenate(parts)
+        recombined_mesh.visual.face_colors = np.vstack(color_tiles)
+        recombined_mesh.metadata = (recombined_mesh.metadata or {})
+        recombined_mesh.metadata["color_parts"] = parts
+
+        return (recombined_mesh,)
+
+    @staticmethod
+    def _ensure_rgba(color):
+        color = np.asarray(color, dtype=np.uint8).reshape(-1)
+        if color.shape[0] == 4:
+            return color
+        if color.shape[0] == 3:
+            return np.append(color, 255).astype(np.uint8)
+        raise ValueError("Unexpected color dimensionality encountered during separation.")
+
+    @staticmethod
+    def _extract_face_colors(mesh):
+        visual = getattr(mesh, "visual", None)
+        if visual is None:
+            raise ValueError("Mesh does not contain visual color information.")
+
+        face_colors = getattr(visual, "face_colors", None)
+        if face_colors is not None and len(face_colors):
+            return np.asarray(face_colors[:, :4], dtype=np.uint8)
+
+        vertex_colors = getattr(visual, "vertex_colors", None)
+        if vertex_colors is not None and len(vertex_colors):
+            vertex_colors = np.asarray(vertex_colors[:, :4], dtype=np.uint8)
+            face_indices = mesh.faces
+            face_vertex_colors = vertex_colors[face_indices]
+            return face_vertex_colors[:, 0, :]
+
+        raise ValueError("Mesh does not provide face or vertex colors required for separation.")
 
 
 class XPart_Generator:
@@ -222,6 +333,7 @@ NODE_CLASS_MAPPINGS = {
     "Hy3D_LoadTrimeshFile": LoadTrimeshFile,
     "Hy3D_SaveTrimeshFile": SaveTrimeshFile,
     "Hy3D_P3_SAM_Segmenter": P3_SAM_Segmenter,
+    "Hy3D_ColorSeperation": ColorSeperation,
     "Hy3D_XPart_Generator": XPart_Generator
 }
 
@@ -229,5 +341,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Hy3D_LoadTrimeshFile": "Load Trimesh File (Hy3D)",
     "Hy3D_SaveTrimeshFile": "Save Trimesh File (Hy3D)",
     "Hy3D_P3_SAM_Segmenter": "P3-SAM Segmenter (Hy3D)",
+    "Hy3D_ColorSeperation": "Color Separation (Hy3D)",
     "Hy3D_XPart_Generator": "XPart Generator (Hy3D)"
 }
